@@ -57,7 +57,12 @@ contract AppointmentScheduler is ERC721, Ownable {
         //TODO Sellorder of some kind
     }
 
+    function buyAppointment(tokenId) payable{
 
+    }
 
-  
+    function getAppointmentForSale() public view{
+        
+    }
+ 
 }
