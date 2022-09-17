@@ -7,20 +7,41 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract AppointmentScheduler is ERC721, Ownable {
     
-   using Counters for Counters.Counter; //TODO
+    //A appointment is being resold by a patient
+    event ItemListed(
+        uint256 indexed tokenId,
+        uint256 price
+    );
 
-   Counters.Counter doctorTokenCounter;
+    //Doctor creates a schedule
+    event AppointmentCreated(
+        uint256 indexed tokenId,
+    );
+
+    //An appointment has been sold
+    event AppointmentSold(
+        uint256 indexed tokenId,
+    );
+
+   uint tokenIdCounter;
 
   
    struct Appointment { 
-      string date;
       uint time; //unix timestamp
       uint duration; //in minutes
       uint price; //in wei
    }
   
 
+  //tokenIds => Appointment-metadata
   mapping (uint => Appointment) appointments;
+
+  //tokenIds => sellprice
+  mapping (uint => uint) listingItems; 
+  
+  
+  
+
   constructor() ERC721("DoctorAppointment", "DA") {}
 
 
@@ -29,40 +50,78 @@ contract AppointmentScheduler is ERC721, Ownable {
   }
 
   //Doctor creates a schedule
-  function scheduleTime(string date, string time, uint duration, price) public returns (uint256) onlyOwner{
-        tokenCounter.increment();
-        uint256 newItemId = tokenCounter.current();
+  function scheduleTime(uint time, uint duration, uint price) public returns (uint256) onlyOwner{
+        tokenIdCounter++;
         
-        _safeMint(msg.sender, newItemId);
-        _setTokenURI(newItemId, msg.sender);    //TODO: Needed? Or address(this)?
+        
+        _safeMint(msg.sender, tokenIdCounter);
+        _setTokenURI(tokenIdCounter, msg.sender);    //TODO: Needed? Or address(this)?
 
-        Appointment appointment = new Appointment(date, time, duration);
+        Appointment appointment = new Appointment(time, duration, price);
 
-        doctorTokenCounter.increment();
-        uint doctorCounter = doctorTokenCounter.current();
-        appointments[doctorCounter] = appointment;
+        appointments[tokenIdCounter] = appointment;
+        
+        emit AppointmentCreated(tokenId);
 
-        return newItemId;
+        return tokenIdCounter;
     }
 
     function sellAppointment(uint tokenId, uint price){
-        //TODO: asser retuirements
+        //assert requirements
+        //appointment exists
+        require(appointments[tokenId] !== 0);
         appointment appointmentToSell = appointments[tokenId];
         
+        //originalprice was not smaller than this
         require(appointmentToSell.price >= price);
+
+        //Appointment is still valid
         require(appointment.time > block.timestamp);
 
+        //Appointment is not yet for sale yet 
+        //TODO: How about an updating of prices?
+        require(listingItems[tokenId] != 0);
 
-        approve(address(this), tokenId);
-        //TODO Sellorder of some kind
-    }
 
-    function buyAppointment(tokenId) payable{
+        approve(address(this), tokenId); // does this work?
 
-    }
+        listingItems[tokenId] = price
+        emit event ItemListed(tokenId, price);
+    );
 
-    function getAppointmentForSale() public view{
+    function buyAppointment(uint tokenId, uint price) public payable{
+        //assert requirements
+        //appointment exists
+        require(appointments[tokenId] !== 0);
+        appointment appointmentToSell = appointments[tokenId];
         
+        //Still valid appointment
+        require(appointment.time > block.timestamp);
+
+        //For sale
+        require(listingItems[tokenId] != 0);
+
+        //Enough money provided
+        require(listingItems[tokenId] >= msg.value);
+
+        //award seller
+        address owner = ownerOf(tokenId);
+        owner.transfer(listingItems[tokenId]);
+
+        //possibly send remaining change to buyer
+        uint change = listingItems[tokenId] - msg.value;
+        if(change > 0){
+            msg.sender.transfer(change); 
+        }
+        
+        //Transfer appointment to buyer
+        safeTransferFrom(ownerOf(tokenId), msg.sender, tokenId);
+        
+        
+
     }
- 
+
+
+
+  
 }
