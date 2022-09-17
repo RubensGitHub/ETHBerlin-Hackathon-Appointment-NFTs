@@ -17,7 +17,6 @@ contract AppointmentScheduler is ERC721, Ownable {
     // An appointment has been sold
     event AppointmentSold(uint256 indexed tokenId);
 
-    uint256 tokenIdCounter;
 
     struct Appointment {
         uint256 time; //unix timestamp
@@ -25,6 +24,10 @@ contract AppointmentScheduler is ERC721, Ownable {
         uint256 lastPrice; //in wei
         uint256 currentSellPrice; //in wei, set to 0 in case not used
     }
+
+    uint listedPercentage = 1; // In percent
+
+    uint256 tokenIdCounter;
 
     // tokenIds => Appointment-metadata
     mapping(uint256 => Appointment) appointments;
@@ -51,29 +54,32 @@ contract AppointmentScheduler is ERC721, Ownable {
         emit AppointmentCreated(tokenIdCounter);
 
         appointments[tokenIdCounter] = appointment;
+        ownedAppointsments[msg.sender].add(tokenIdCounter);
+
         //Doctor also sells at the market place
         sellAppointment(tokenIdCounter, price);
-
-        ownedAppointsments[msg.sender].add(tokenIdCounter);
 
         return tokenIdCounter;
     }
 
-    function sellAppointment(uint256 tokenId, uint256 price) {
+    function sellAppointment(uint256 tokenId, uint256 price) public {
         //assert requirements
+        //tokem is owned by msg.sender
+        require(ownerOf(tokenId == msg.sender), "You are not the owner of this token!");
+        
         //appointment exists
-        require(appointments[tokenId] != 0);
+        require(appointments[tokenId] != 0, "tokenId does not belong to any appointment. Did it expire?");
         appointment appointmentToSell = appointments[tokenId];
 
         //originalprice was not smaller than this
-        require(appointmentToSell.LastSellPrice >= price);
+        require(appointmentToSell.LastSellPrice >= price, "You can not sell the appointment for more than you bought it for!");
 
         //Appointment is still valid
-        require(appointment.time > block.timestamp);
+        require(appointment.time > block.timestamp, "The appointment already expired!");
 
         //Appointment is not yet for sale yet
         //TODO: How about an updating of prices?
-        require(appointmentToSell.currentSellPrice == 0);
+        require(appointmentToSell.currentSellPrice == 0, "Appointment is already for sale!");
 
         appointments[tokenId].currentSellPrice = price;
         approve(address(this), tokenId); // does this work?
@@ -85,17 +91,17 @@ contract AppointmentScheduler is ERC721, Ownable {
     function buyAppointment(uint256 tokenId, uint256 price) public payable {
         //assert requirements
         //appointment exists
-        require(appointments[tokenId] != 0);
+        require(appointments[tokenId] != 0, "tokenId does not belong to any appointment. Did it expire?");
         appointment appointmentToSell = appointments[tokenId];
 
         //Still valid appointment
-        require(appointment.time > block.timestamp);
+        require(appointment.time > block.timestamp, "The appointment already expired!");
 
         //For sale
-        require(appointments[tokenId].currentSellPrice != 0);
+        require(appointments[tokenId].currentSellPrice != 0, "Appointment is not for sale!");
 
         //Enough money provided
-        require(appointments[tokenId].currentSellPrice <= msg.value);
+        require(appointments[tokenId].currentSellPrice <= msg.value, "Not enough ETH provided for payment of appointment!");
 
         //Remove from active set of sell-positions
         _activeIds.remove(tokenId);
@@ -103,7 +109,9 @@ contract AppointmentScheduler is ERC721, Ownable {
         //award seller
         address _owner = ownerOf(tokenId);
 
-        _owner.transfer(appointments[tokenId].currentSellPrice);
+        uint feesPortion = appointments[tokenId].currentSellPrice / 100 * item.listedPercentage;
+        
+        _owner.transfer(appointments[tokenId].currentSellPrice - feePortion);
 
         //possibly send remaining change to buyer
         uint256 change = appointments[tokenId].currentSellPrice - msg.value;
@@ -113,10 +121,10 @@ contract AppointmentScheduler is ERC721, Ownable {
 
         //Transfer appointment to buyer
         safeTransferFrom(_owner, msg.sender, tokenId);
-        appointments[tokenId].LastSellPrice = appointments[tokenId]
-            .currentSellPrice;
+        
+        appointments[tokenId].LastSellPrice = appointments[tokenId].currentSellPrice;
         appointments[tokenId].currentSellPrice = 0;
-
+        
         ownedAppointsments[_owner].remove(tokenIdCounter);
         ownedAppointsments[msg.sender].add(tokenIdCounter);
 
@@ -128,6 +136,10 @@ contract AppointmentScheduler is ERC721, Ownable {
         super._transfer(from,to,tokenId);
         ownedAppointments[from].remove(tokenId);
         ownedAppointments[to].add(tokenId);
+
+        //If it was for sale, remove
+        appointments[tokenId].currentSellPrice = 0;
+        activeItems.remove(tokenId);
     }
 
     function activeItems() public view returns (Appointment[] memory) {
@@ -142,14 +154,9 @@ contract AppointmentScheduler is ERC721, Ownable {
         return items;
     }
 
-    function usersListingIds(address user)
-        public
-        view
-        returns (uint256[] memory)
+    function usersListingIds(address user) public view returns (Appointment[] memory)
     {
-        Appointment[] memory listingsOfUser = new Appointment[](
-            ownedAppointments[user].length()
-        );
+        Appointment[] memory listingsOfUser = new Appointment[](ownedAppointments[user].length());
 
         for (uint256 i = 0; i < listingsOfUser.length; i++) {
             listingsOfUser[i] = ownedAppointments[user].at(i);
