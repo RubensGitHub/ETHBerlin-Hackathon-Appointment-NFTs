@@ -2,7 +2,7 @@
 
 pragma solidity >=0.8.0 <0.9.0;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 
@@ -17,6 +17,7 @@ contract AppointmentScheduler is ERC721, Ownable {
     // An appointment has been sold
     event AppointmentSold(uint256 indexed tokenId);
 
+    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.UintSet;
 
     struct Appointment {
         uint256 time; //unix timestamp
@@ -31,13 +32,13 @@ contract AppointmentScheduler is ERC721, Ownable {
 
     // tokenIds => Appointment-metadata
     mapping(uint256 => Appointment) appointments;
-    mapping(address => EnumerableSetUpgrade.UintSet) ownedAppointments;
+    mapping(address => EnumerableSetUpgradeable.UintSet) ownedAppointments;
 
     EnumerableSetUpgradeable.UintSet private _activeIds;
 
     constructor() ERC721("DoctorAppointment", "DA") {}
 
-    function getInfo(uint256 tokenId) public view {
+    function getInfo(uint256 tokenId) public view returns (Appointment memory) {
         return appointments[tokenId];
     }
 
@@ -50,11 +51,11 @@ contract AppointmentScheduler is ERC721, Ownable {
         tokenIdCounter++;
         _safeMint(msg.sender, tokenIdCounter);
 
-        Appointment appointment = new Appointment(time, duration, price, 0);
+        Appointment memory appointment = Appointment(time, duration, price, 0);
         emit AppointmentCreated(tokenIdCounter);
 
         appointments[tokenIdCounter] = appointment;
-        ownedAppointsments[msg.sender].add(tokenIdCounter);
+        ownedAppointments[msg.sender].add(tokenIdCounter);
 
         //Doctor also sells at the market place
         sellAppointment(tokenIdCounter, price);
@@ -65,17 +66,17 @@ contract AppointmentScheduler is ERC721, Ownable {
     function sellAppointment(uint256 tokenId, uint256 price) public {
         //assert requirements
         //tokem is owned by msg.sender
-        require(ownerOf(tokenId == msg.sender), "You are not the owner of this token!");
+        require(ownerOf(tokenId) == msg.sender, "You are not the owner of this token!");
         
         //appointment exists
-        require(appointments[tokenId] != 0, "tokenId does not belong to any appointment. Did it expire?");
-        appointment appointmentToSell = appointments[tokenId];
+        require(appointments[tokenId].lastPrice != 0, "tokenId does not belong to any appointment. Did it expire?");
+        Appointment memory appointmentToSell = appointments[tokenId];
 
         //originalprice was not smaller than this
-        require(appointmentToSell.LastSellPrice >= price, "You can not sell the appointment for more than you bought it for!");
+        require(appointmentToSell.lastPrice >= price, "You can not sell the appointment for more than you bought it for!");
 
         //Appointment is still valid
-        require(appointment.time > block.timestamp, "The appointment already expired!");
+        require(appointmentToSell.time > block.timestamp, "The appointment already expired!");
 
         //Appointment is not yet for sale yet
         //TODO: How about an updating of prices?
@@ -88,14 +89,14 @@ contract AppointmentScheduler is ERC721, Ownable {
         emit ItemListed(tokenId, price);
     }
 
-    function buyAppointment(uint256 tokenId, uint256 price) public payable {
+    function buyAppointment(uint256 tokenId) public payable {
         //assert requirements
         //appointment exists
-        require(appointments[tokenId] != 0, "tokenId does not belong to any appointment. Did it expire?");
-        appointment appointmentToSell = appointments[tokenId];
+        require(appointments[tokenId].lastPrice != 0, "tokenId does not belong to any appointment. Did it expire?");
+        Appointment memory appointmentToSell = appointments[tokenId];
 
         //Still valid appointment
-        require(appointment.time > block.timestamp, "The appointment already expired!");
+        require(appointmentToSell.time > block.timestamp, "The appointment already expired!");
 
         //For sale
         require(appointments[tokenId].currentSellPrice != 0, "Appointment is not for sale!");
@@ -109,24 +110,24 @@ contract AppointmentScheduler is ERC721, Ownable {
         //award seller
         address _owner = ownerOf(tokenId);
 
-        uint feesPortion = appointments[tokenId].currentSellPrice / 100 * item.listedPercentage;
+        uint feesPortion = appointments[tokenId].currentSellPrice / 100 * listedPercentage;
         
-        _owner.transfer(appointments[tokenId].currentSellPrice - feePortion);
+        payable(_owner).transfer(appointments[tokenId].currentSellPrice - feesPortion);
 
         //possibly send remaining change to buyer
         uint256 change = appointments[tokenId].currentSellPrice - msg.value;
         if (change > 0) {
-            msg.sender.transfer(change);
+            payable(msg.sender).transfer(change);
         }
 
         //Transfer appointment to buyer
         safeTransferFrom(_owner, msg.sender, tokenId);
         
-        appointments[tokenId].LastSellPrice = appointments[tokenId].currentSellPrice;
+        appointments[tokenId].lastPrice = appointments[tokenId].currentSellPrice;
         appointments[tokenId].currentSellPrice = 0;
         
-        ownedAppointsments[_owner].remove(tokenIdCounter);
-        ownedAppointsments[msg.sender].add(tokenIdCounter);
+        ownedAppointments[_owner].remove(tokenIdCounter);
+        ownedAppointments[msg.sender].add(tokenIdCounter);
 
         emit AppointmentSold(tokenId);
     }
@@ -139,7 +140,7 @@ contract AppointmentScheduler is ERC721, Ownable {
 
         //If it was for sale, remove
         appointments[tokenId].currentSellPrice = 0;
-        activeItems.remove(tokenId);
+        _activeIds.remove(tokenId);
     }
 
     function activeItems() public view returns (Appointment[] memory) {
@@ -159,7 +160,8 @@ contract AppointmentScheduler is ERC721, Ownable {
         Appointment[] memory listingsOfUser = new Appointment[](ownedAppointments[user].length());
 
         for (uint256 i = 0; i < listingsOfUser.length; i++) {
-            listingsOfUser[i] = ownedAppointments[user].at(i);
+            uint ownedTokenId = ownedAppointments[user].at(i);
+            listingsOfUser[i] = appointments[ownedTokenId];
         }
 
         return listingsOfUser;
