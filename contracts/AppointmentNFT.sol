@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 
+
 contract AppointmentScheduler is ERC721, Ownable {
     // An appointment is being resold by a patient
     event ItemListed(uint256 indexed tokenId, uint256 price);
@@ -22,7 +23,7 @@ contract AppointmentScheduler is ERC721, Ownable {
         uint256 time; //unix timestamp
         uint256 duration; //in minutes
         uint256 lastPrice; //in wei
-        uint256 currentSellPrice; //set to 0 in case not used
+        uint256 currentSellPrice; //in wei, set to 0 in case not used
     }
 
     // tokenIds => Appointment-metadata
@@ -120,6 +121,13 @@ contract AppointmentScheduler is ERC721, Ownable {
         ownedAppointsments[msg.sender].add(tokenIdCounter);
 
         emit AppointmentSold(tokenId);
+    }
+
+    //In case the user directly sends the NFT to someone without using the market place, not tested
+    function _transfer(address from, address to, uint256 tokenId) internal virtual override {
+        super._transfer(from,to,tokenId);
+        ownedAppointments[from].remove(tokenId);
+        ownedAppointments[to].add(tokenId);
     }
 
     function activeItems() public view returns (Appointment[] memory) {
