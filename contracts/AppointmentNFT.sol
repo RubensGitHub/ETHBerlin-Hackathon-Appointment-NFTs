@@ -7,78 +7,72 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
 
 contract AppointmentScheduler is ERC721, Ownable {
-    
     // An appointment is being resold by a patient
-    event ItemListed(
-        uint256 indexed tokenId,
-        uint256 price
-    );
+    event ItemListed(uint256 indexed tokenId, uint256 price);
 
     // Doctor creates a schedule
-    event AppointmentCreated(
-        uint256 indexed tokenId
-    );
+    event AppointmentCreated(uint256 indexed tokenId);
 
     // An appointment has been sold
-    event AppointmentSold(
-        uint256 indexed tokenId
-    );
+    event AppointmentSold(uint256 indexed tokenId);
 
-   uint tokenIdCounter;
+    uint256 tokenIdCounter;
 
-  
-   struct Appointment { 
-      uint time; //unix timestamp
-      uint duration; //in minutes
-      uint price; //in wei
-      uint currentSellPrice; //set to 0 in case not used
-   }
-  
+    struct Appointment {
+        uint256 time; //unix timestamp
+        uint256 duration; //in minutes
+        uint256 lastPrice; //in wei
+        uint256 currentSellPrice; //set to 0 in case not used
+    }
 
-  //tokenIds => Appointment-metadata
-  mapping (uint => Appointment) appointments;
+    // tokenIds => Appointment-metadata
+    mapping(uint256 => Appointment) appointments;
+    mapping(address => EnumerableSetUpgrade.UintSet) ownedAppointments;
 
-  EnumerableSetUpgradeable.UintSet private _activeIds;
-  
-  constructor() ERC721("DoctorAppointment", "DA") {}
+    EnumerableSetUpgradeable.UintSet private _activeIds;
 
-  function getInfo(uint tokenId) public view {
-      return appointments[tokenId];
-  }
+    constructor() ERC721("DoctorAppointment", "DA") {}
 
-  //Doctor creates a schedule
-  function scheduleTime(uint time, uint duration, uint price) public onlyOwner returns (uint256){
+    function getInfo(uint256 tokenId) public view {
+        return appointments[tokenId];
+    }
+
+    //Doctor creates a schedule
+    function scheduleTime(
+        uint256 time,
+        uint256 duration,
+        uint256 price
+    ) public onlyOwner returns (uint256) {
         tokenIdCounter++;
-        
-        
         _safeMint(msg.sender, tokenIdCounter);
-        _setTokenURI(tokenIdCounter, msg.sender);    //TODO: Needed? Or address(this)?
 
         Appointment appointment = new Appointment(time, duration, price, 0);
+        emit AppointmentCreated(tokenIdCounter);
 
         appointments[tokenIdCounter] = appointment;
-        
-        emit AppointmentCreated(tokenId);
+        //Doctor also sells at the market place
+        sellAppointment(tokenIdCounter, price);
+
+        ownedAppointsments[msg.sender].add(tokenIdCounter);
 
         return tokenIdCounter;
     }
 
-    function sellAppointment(uint tokenId, uint price){
+    function sellAppointment(uint256 tokenId, uint256 price) {
         //assert requirements
         //appointment exists
         require(appointments[tokenId] != 0);
         appointment appointmentToSell = appointments[tokenId];
-        
+
         //originalprice was not smaller than this
-        require(appointmentToSell.price >= price);
+        require(appointmentToSell.LastSellPrice >= price);
 
         //Appointment is still valid
         require(appointment.time > block.timestamp);
 
-        //Appointment is not yet for sale yet 
+        //Appointment is not yet for sale yet
         //TODO: How about an updating of prices?
         require(appointmentToSell.currentSellPrice == 0);
-
 
         appointments[tokenId].currentSellPrice = price;
         approve(address(this), tokenId); // does this work?
@@ -87,12 +81,12 @@ contract AppointmentScheduler is ERC721, Ownable {
         emit ItemListed(tokenId, price);
     }
 
-    function buyAppointment(uint tokenId, uint price) public payable{
+    function buyAppointment(uint256 tokenId, uint256 price) public payable {
         //assert requirements
         //appointment exists
         require(appointments[tokenId] != 0);
         appointment appointmentToSell = appointments[tokenId];
-        
+
         //Still valid appointment
         require(appointment.time > block.timestamp);
 
@@ -110,20 +104,49 @@ contract AppointmentScheduler is ERC721, Ownable {
 
         _owner.transfer(appointments[tokenId].currentSellPrice);
 
-
-
         //possibly send remaining change to buyer
-        uint change = appointments[tokenId].currentSellPrice - msg.value;
-        if(change > 0){
-            msg.sender.transfer(change); 
+        uint256 change = appointments[tokenId].currentSellPrice - msg.value;
+        if (change > 0) {
+            msg.sender.transfer(change);
         }
-        
+
         //Transfer appointment to buyer
         safeTransferFrom(_owner, msg.sender, tokenId);
+        appointments[tokenId].LastSellPrice = appointments[tokenId]
+            .currentSellPrice;
         appointments[tokenId].currentSellPrice = 0;
 
+        ownedAppointsments[_owner].remove(tokenIdCounter);
+        ownedAppointsments[msg.sender].add(tokenIdCounter);
+
         emit AppointmentSold(tokenId);
-        
     }
 
+    function activeItems() public view returns (Appointment[] memory) {
+        uint256 totalActive = _activeIds.length();
+
+        Appointment[] memory items = new Appointment[](totalActive);
+
+        for (uint256 i = 0; i < totalActive; i++) {
+            items[i] = appointments[_activeIds.at(i)];
+        }
+
+        return items;
+    }
+
+    function usersListingIds(address user)
+        public
+        view
+        returns (uint256[] memory)
+    {
+        Appointment[] memory listingsOfUser = new Appointment[](
+            ownedAppointments[user].length()
+        );
+
+        for (uint256 i = 0; i < listingsOfUser.length; i++) {
+            listingsOfUser[i] = ownedAppointments[user].at(i);
+        }
+
+        return listingsOfUser;
+    }
 }
