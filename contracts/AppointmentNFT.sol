@@ -155,15 +155,15 @@ contract AppointmentScheduler is ERC721, Ownable {
         return items;
     }
 
-    function usersListingIds(address user) public view returns (Appointment[] memory)
+    function userOwnedAppointments(address user) public view returns (Appointment[] memory)
     {
-        Appointment[] memory listingsOfUser = new Appointment[](ownedAppointments[user].length());
+        Appointment[] memory appointmentsOfUser = new Appointment[](ownedAppointments[user].length());
 
-        for (uint256 i = 0; i < listingsOfUser.length; i++) {
+        for (uint256 i = 0; i < appointmentsOfUser.length; i++) {
             uint ownedTokenId = ownedAppointments[user].at(i);
-            listingsOfUser[i] = appointments[ownedTokenId];
+            appointmentsOfUser[i] = appointments[ownedTokenId];
         }
 
-        return listingsOfUser;
+        return appointmentsOfUser;
     }
 }
