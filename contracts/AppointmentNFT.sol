@@ -36,6 +36,11 @@ contract AppointmentScheduler is ERC721, Ownable {
 
     EnumerableSetUpgradeable.UintSet private _activeIds;
 
+    struct OutputAppointment {
+        uint tokenId;
+        Appointment appointment;
+    }
+
     constructor() ERC721("DoctorAppointment", "DA") {}
 
     function getInfo(uint256 tokenId) public view returns (Appointment memory) {
@@ -58,6 +63,7 @@ contract AppointmentScheduler is ERC721, Ownable {
         ownedAppointments[msg.sender].add(tokenIdCounter);
 
         //Doctor also sells at the market place
+        approve(address(this), tokenIdCounter);  
         sellAppointment(tokenIdCounter, price);
 
         return tokenIdCounter;
@@ -78,12 +84,12 @@ contract AppointmentScheduler is ERC721, Ownable {
         //Appointment is still valid
         require(appointmentToSell.time > block.timestamp, "The appointment already expired!");
 
-        //Appointment is not yet for sale yet
+        //Appointment is not for sale yet
         //TODO: How about an updating of prices?
         require(appointmentToSell.currentSellPrice == 0, "Appointment is already for sale!");
 
         appointments[tokenId].currentSellPrice = price;
-        approve(address(this), tokenId); // does this work?
+        approve(address(this), tokenId);
 
         _activeIds.add(tokenId);
         emit ItemListed(tokenId, price);
@@ -102,7 +108,7 @@ contract AppointmentScheduler is ERC721, Ownable {
         require(appointments[tokenId].currentSellPrice != 0, "Appointment is not for sale!");
 
         //Enough money provided
-        require(appointments[tokenId].currentSellPrice <= msg.value, "Not enough ETH provided for payment of appointment!");
+        require(appointments[tokenId].currentSellPrice == msg.value, "Please match payment of appointment!");
 
         //Remove from active set of sell-positions
         _activeIds.remove(tokenId);
@@ -114,14 +120,9 @@ contract AppointmentScheduler is ERC721, Ownable {
         
         payable(_owner).transfer(appointments[tokenId].currentSellPrice - feesPortion);
 
-        //possibly send remaining change to buyer
-        uint256 change = appointments[tokenId].currentSellPrice - msg.value;
-        if (change > 0) {
-            payable(msg.sender).transfer(change);
-        }
-
-        //Transfer appointment to buyer
-        safeTransferFrom(_owner, msg.sender, tokenId);
+        //Transfer appointment to buyer, if contract is approved, make the low-level transfer call
+        require(_isApprovedOrOwner(address(this), tokenId), "ERC721: transfer caller is not owner nor approved");
+        _safeTransfer(_owner, msg.sender, tokenId, '');
         
         appointments[tokenId].lastPrice = appointments[tokenId].currentSellPrice;
         appointments[tokenId].currentSellPrice = 0;
@@ -131,37 +132,29 @@ contract AppointmentScheduler is ERC721, Ownable {
 
         emit AppointmentSold(tokenId);
     }
-
-    //In case the user directly sends the NFT to someone without using the market place, not tested
-    function _transfer(address from, address to, uint256 tokenId) internal virtual override {
-        super._transfer(from,to,tokenId);
-        ownedAppointments[from].remove(tokenId);
-        ownedAppointments[to].add(tokenId);
-
-        //If it was for sale, remove
-        appointments[tokenId].currentSellPrice = 0;
-        _activeIds.remove(tokenId);
-    }
-
-    function activeItems() public view returns (Appointment[] memory) {
+ 
+    function activeItems() public view returns (OutputAppointment[] memory) {
         uint256 totalActive = _activeIds.length();
 
-        Appointment[] memory items = new Appointment[](totalActive);
+        OutputAppointment[] memory items = new OutputAppointment[](totalActive);
 
         for (uint256 i = 0; i < totalActive; i++) {
-            items[i] = appointments[_activeIds.at(i)];
-        }
 
+            uint tokenId = _activeIds.at(i);
+            OutputAppointment memory returnAppointment = OutputAppointment(tokenId, appointments[tokenId]);
+            items[i] = returnAppointment;
+        }
         return items;
     }
 
-    function userOwnedAppointments(address user) public view returns (Appointment[] memory)
+    function userOwnedAppointments(address user) public view returns (OutputAppointment[] memory)
     {
-        Appointment[] memory appointmentsOfUser = new Appointment[](ownedAppointments[user].length());
+        OutputAppointment[] memory appointmentsOfUser = new OutputAppointment[](ownedAppointments[user].length());
 
         for (uint256 i = 0; i < appointmentsOfUser.length; i++) {
             uint ownedTokenId = ownedAppointments[user].at(i);
-            appointmentsOfUser[i] = appointments[ownedTokenId];
+            OutputAppointment memory returnAppointment = OutputAppointment(ownedTokenId, appointments[ownedTokenId]);
+            appointmentsOfUser[i] = returnAppointment;
         }
 
         return appointmentsOfUser;
