@@ -1,7 +1,6 @@
 # NFT-ized Medical Appointments -  A ETHBerlin-Hackathon Submission by Team Archangel
 
-
-NFT-ized Medical Appointments
+Devfolio Link: https://devfolio.co/projects/archangelhealth-5fee
 
 E-Dreams for Medical Appointments, on steroids. It's a digital medical clinic aggregator/ marketplace, where patients can not only book, but also sell their medical appointments online, using NFTs.
 
